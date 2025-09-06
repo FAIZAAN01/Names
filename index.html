@@ -1,0 +1,379 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GitHub Calendar Script Generator</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background: #0d1117;
+            color: #c9d1d9;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            margin: 20px;
+        }
+
+        .controls {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 10px;
+            flex-wrap: wrap;
+        }
+
+        select,
+        button {
+            padding: 5px 10px;
+            font-size: 14px;
+            background: #161b22;
+            color: #c9d1d9;
+            border: 1px solid #30363d;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+
+        button:hover {
+            background: #21262d;
+        }
+
+        .legend {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            margin-bottom: 10px;
+        }
+
+        .legend-box {
+            width: 20px;
+            height: 20px;
+            border-radius: 3px;
+            cursor: pointer;
+            border: 1px solid #30363d;
+        }
+
+        .legend-box.selected {
+            border: 2px solid #ffffff;
+        }
+
+        .calendar-wrapper {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .calendar {
+            display: grid;
+            grid-template-columns: repeat(53, 14px);
+            grid-template-rows: repeat(7, 14px);
+            grid-gap: 3px;
+        }
+
+        .day {
+            width: 12px;
+            height: 12px;
+            background: #161b22;
+            border-radius: 2px;
+            cursor: pointer;
+        }
+
+        .day[data-level="1"] {
+            background: #0e4429;
+        }
+
+        .day[data-level="2"] {
+            background: #006d32;
+        }
+
+        .day[data-level="3"] {
+            background: #26a641;
+        }
+
+        .day[data-level="4"] {
+            background: #39d353;
+        }
+
+        .day.future {
+            opacity: 0.3;
+            cursor: not-allowed;
+        }
+
+        textarea {
+            width: 90%;
+            height: 300px;
+            background: #0d1117;
+            color: #c9d1d9;
+            padding: 10px;
+            font-family: monospace;
+            margin-top: 20px;
+        }
+
+        #copyBtn {
+            margin-top: 8px;
+            padding: 6px 12px;
+            border-radius: 6px;
+            border: 1px solid #30363d;
+            background: #161b22;
+            color: #c9d1d9;
+            cursor: pointer;
+        }
+
+        #copyBtn:hover {
+            background: #21262d;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="controls">
+        <select id="yearSelect"></select>
+        <button id="randomizeBtn">Randomize</button>
+        <button id="customBtn">Custom</button>
+    </div>
+
+    <div class="legend" id="legend">
+        <span>Less</span>
+        <div class="legend-box eraser" data-level="0" style="background:#161b22; border:1px dashed #c9d1d9;"
+            title="Eraser">
+        </div>
+        <div class="legend-box" data-level="1" style="background:#0e4429;"></div>
+        <div class="legend-box" data-level="2" style="background:#006d32;"></div>
+        <div class="legend-box" data-level="3" style="background:#26a641;"></div>
+        <div class="legend-box" data-level="4" style="background:#39d353;"></div>
+        <span>More</span>
+    </div>
+
+    <div class="calendar-wrapper">
+        <div class="calendar" id="calendar"></div>
+    </div>
+
+    <h3>Generated Node.js Commit Script</h3>
+    <button id="copyBtn">Copy</button>
+    <textarea id="generatedScript" placeholder="//Generated script will appear here" readonly></textarea>
+
+    <hr>
+
+    <!-- Download Button -->
+    <button id="downloadBtn">Download package.json</button>
+    
+    <script>
+        const downloadBtn = document.getElementById("downloadBtn");
+
+        downloadBtn.addEventListener("click", () => {
+            // Replace this with your actual JSON data or fetch it from a file if available locally
+            const jsonData = {
+                name: "my-project",
+                version: "1.0.0",
+                description: "Generated package.json",
+                scripts: {
+                    start: "node index.js"
+                }
+            };
+
+            // Convert JSON object to string
+            const dataStr = JSON.stringify(jsonData, null, 2); // pretty print
+
+            // Create a Blob
+            const blob = new Blob([dataStr], { type: "application/json" });
+
+            // Create a temporary link element
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = "package.json"; // filename
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        });
+    </script>
+
+    <script>
+        const calendar = document.getElementById("calendar");
+        const yearSelect = document.getElementById("yearSelect");
+        const randomizeBtn = document.getElementById("randomizeBtn");
+        const customBtn = document.getElementById("customBtn");
+        const legendBoxes = document.querySelectorAll(".legend-box");
+        const generatedScript = document.getElementById("generatedScript");
+        const copyBtn = document.getElementById("copyBtn");
+
+        let customMode = false;
+        let selectedLevel = null;
+        const today = new Date();
+        const currentYear = today.getFullYear();
+        let commitMap = {};
+
+        // Copy to clipboard
+        copyBtn.addEventListener("click", () => {
+            navigator.clipboard.writeText(generatedScript.value).then(() => {
+                copyBtn.textContent = "Copied!";
+                setTimeout(() => copyBtn.textContent = "Copy", 2000);
+            });
+        });
+
+        // Populate year select
+        for (let y = currentYear; y >= currentYear - 10; y--) {
+            const opt = document.createElement("option");
+            opt.value = y;
+            opt.textContent = y;
+            yearSelect.appendChild(opt);
+        }
+
+        // Generate calendar with automatic shift back 1 day
+        function renderCalendar(year) {
+            calendar.innerHTML = "";
+            commitMap = {};
+            generatedScript.value = "";
+
+            const startDate = new Date(year, 0, 1);
+            let endDate = new Date(year, 11, 31);
+            if (year === currentYear) endDate = today;
+
+            let curDate = new Date(startDate);
+            let week = 1;
+
+            while (curDate <= endDate) {
+                const day = document.createElement("div");
+                day.className = "day";
+                day.dataset.date = curDate.toISOString().split("T")[0];
+                day.dataset.count = 0;
+
+                if (curDate > today) day.classList.add("future");
+
+                day.addEventListener("click", () => {
+                    if (customMode && selectedLevel !== null && !day.classList.contains("future")) {
+                        if (selectedLevel === 0) {
+                            delete day.dataset.level;
+                            day.dataset.count = 0;
+                            delete commitMap[day.dataset.date];
+                        } else {
+                            day.dataset.level = selectedLevel;
+                            day.dataset.count = selectedLevel;
+                            commitMap[day.dataset.date] = selectedLevel;
+                        }
+                        regenerateScript();
+                    }
+                });
+
+                day.style.gridRow = curDate.getDay() + 1;
+                day.style.gridColumn = week;
+
+                calendar.appendChild(day);
+
+                if (curDate.getDay() === 6) week++;
+                curDate.setDate(curDate.getDate() + 1);
+            }
+
+            // Automatically shift all dates back by 1 day
+            const days = calendar.querySelectorAll(".day");
+            let newCommitMap = {};
+            days.forEach(day => {
+                const oldDate = new Date(day.dataset.date);
+                oldDate.setDate(oldDate.getDate() + 1);
+                const newDateStr = oldDate.toISOString().split("T")[0];
+                day.dataset.date = newDateStr;
+                if (day.dataset.count > 0) {
+                    newCommitMap[newDateStr] = parseInt(day.dataset.count);
+                }
+            });
+            commitMap = newCommitMap;
+            regenerateScript();
+        }
+
+        // Regenerate script
+        function regenerateScript() {
+            let lines = [
+                `import jsonfile from "jsonfile";`,
+                `import moment from "moment";`,
+                `import simpleGit from "simple-git";`,
+                `import random from "random";`,
+                ``,
+                `const path = "./data.json";`,
+                `const git = simpleGit();`,
+                ``,
+                `const generateCommits = async () => {`
+            ];
+
+            Object.keys(commitMap).forEach(dateStr => {
+                const count = commitMap[dateStr];
+                const d = new Date(dateStr);
+                const yyyy = d.getFullYear();
+                const dd = String(d.getDate()).padStart(2, "0");
+                const mmm = d.toLocaleString("default", { month: "short" });
+
+                lines.push(`  // Commits for ${dateStr}`);
+                lines.push(`  for(let i=0;i<${count};i++){`);
+                lines.push(`    const baseDate=moment("${dd}-${mmm}-${yyyy}","DD-MMM-YYYY");`);
+                lines.push(`    const randomTime = baseDate.clone().add(random.int(0,23),"hours").add(random.int(0,59),"minutes").add(random.int(0,59),"seconds");`);
+                lines.push(`    const formatted = randomTime.format();`);
+                lines.push(`    await jsonfile.writeFile(path,{date:formatted});`);
+                lines.push(`    await git.add([path]);`);
+                lines.push(`    await git.commit(formatted, {"--date": formatted});`);
+                lines.push(`  }`);
+            });
+
+            lines.push(`  await git.push();`);
+            lines.push(`};`);
+            lines.push(``);
+            lines.push(`generateCommits();`);
+
+            generatedScript.value = lines.join("\n");
+        }
+
+        // Legend selection
+        legendBoxes.forEach(box => {
+            box.addEventListener("click", () => {
+                legendBoxes.forEach(b => b.classList.remove("selected"));
+                box.classList.add("selected");
+                selectedLevel = parseInt(box.dataset.level);
+                customMode = true;
+            });
+        });
+
+        // Custom button
+        customBtn.addEventListener("click", () => {
+            customMode = true;
+            commitMap = {};
+            generatedScript.value = "// Custom commits start\n\n";
+            const days = calendar.querySelectorAll(".day");
+            days.forEach(day => {
+                delete day.dataset.level;
+                day.dataset.count = 0;
+            });
+        });
+
+        // Randomize contributions
+        randomizeBtn.addEventListener("click", () => {
+            commitMap = {};
+            const days = calendar.querySelectorAll(".day:not(.future)");
+            days.forEach(day => {
+                const count = Math.floor(Math.random() * 5);
+                if (count > 0) {
+                    day.dataset.level = count;
+                    day.dataset.count = count;
+                    commitMap[day.dataset.date] = count;
+                } else {
+                    delete day.dataset.level;
+                    day.dataset.count = 0;
+                }
+            });
+            regenerateScript();
+        });
+
+        // Year selection
+        yearSelect.addEventListener("change", () => {
+            legendBoxes.forEach(b => b.classList.remove("selected"));
+            selectedLevel = null;
+            customMode = false;
+            renderCalendar(parseInt(yearSelect.value));
+        });
+
+        // Initial render
+        renderCalendar(currentYear);
+    </script>
+
+</body>
+
+</html>
